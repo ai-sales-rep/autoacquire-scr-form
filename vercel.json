@@ -1,5 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "cleanUrls": true,
-  "functions": { "api/submit.js": { "maxDuration": 15 } }
+  "cleanUrls": true
 }
