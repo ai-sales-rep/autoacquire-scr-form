@@ -76,15 +76,26 @@ async function resolvePipeline(token) {
     return { pipelineId: process.env.HS_PIPELINE_ID, stageId: process.env.HS_STAGE_INTAKE_ID };
   }
   const r = await hsFetch(token, "/crm/v3/pipelines/tickets");
-  if (!r.ok || !r.json?.results) return {};
-  const pipe = r.json.results.find(
-    (p) => (p.label || "").toLowerCase() === "change requests"
-  );
-  if (!pipe) return {};
-  const stage = (pipe.stages || []).find(
-    (s) => (s.label || "").toLowerCase() === "intake"
-  );
-  return { pipelineId: pipe.id, stageId: stage?.id };
+  if (!r.ok || !Array.isArray(r.json?.results) || r.json.results.length === 0) return {};
+  const pipes = r.json.results;
+  const byOrder = (arr) =>
+    (arr || []).slice().sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+
+  // Prefer the "Change Requests" -> "Intake" pipeline/stage.
+  const cr = pipes.find((p) => (p.label || "").toLowerCase() === "change requests");
+  if (cr) {
+    const intake =
+      (cr.stages || []).find((s) => (s.label || "").toLowerCase() === "intake") ||
+      byOrder(cr.stages)[0];
+    if (intake) return { pipelineId: cr.id, stageId: intake.id };
+  }
+
+  // Day-one fallback: the portal's default ticket pipeline + its first stage.
+  // HubSpot requires hs_pipeline_stage on every ticket, so we must always resolve one.
+  const def = pipes.find((p) => p.id === "0") || pipes[0];
+  const firstStage = byOrder(def?.stages)[0];
+  if (def && firstStage) return { pipelineId: def.id, stageId: firstStage.id };
+  return {};
 }
 
 async function findOrCreateContact(token, b) {
@@ -127,9 +138,13 @@ async function createTicket(token, b, pipe, contactId) {
   });
   if (full.ok && full.json?.id) return { id: full.json.id, degraded: false };
 
-  // Day-one-safe fallback: some scr_* props or the pipeline may not exist yet.
+  // Day-one-safe fallback: some scr_* props may not exist yet. Keep the resolved
+  // pipeline/stage — HubSpot rejects a ticket with no hs_pipeline_stage.
+  const minProps = { subject: b.subject, content: buildDescription(b) };
+  if (pipe?.pipelineId) minProps.hs_pipeline = pipe.pipelineId;
+  if (pipe?.stageId) minProps.hs_pipeline_stage = pipe.stageId;
   const minimal = await hsFetch(token, "/crm/v3/objects/tickets", "POST", {
-    properties: { subject: b.subject, content: buildDescription(b) },
+    properties: minProps,
     associations,
   });
   if (minimal.ok && minimal.json?.id) return { id: minimal.json.id, degraded: true };

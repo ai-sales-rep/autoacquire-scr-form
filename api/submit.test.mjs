@@ -6,7 +6,21 @@ function makeRes() {
   return { _s: 0, _j: null, status(c){ this._s = c; return this; }, json(o){ this._j = o; return this; } };
 }
 
-function mockFetch(calls, { ticketFullFails = false } = {}) {
+const CR_PIPELINES = [
+  { id: "42", label: "Change Requests", stages: [
+    { id: "101", label: "Intake", displayOrder: 0 },
+    { id: "102", label: "Triage", displayOrder: 1 },
+  ] },
+];
+// Portal with no Change Requests pipeline — only the default "Support Pipeline".
+const DEFAULT_ONLY_PIPELINES = [
+  { id: "0", label: "Support Pipeline", stages: [
+    { id: "1", label: "New", displayOrder: 0 },
+    { id: "4", label: "Closed", displayOrder: 3 },
+  ] },
+];
+
+function mockFetch(calls, { ticketFullFails = false, pipelines = CR_PIPELINES } = {}) {
   return async (url, opts = {}) => {
     const body = opts.body ? JSON.parse(opts.body) : null;
     calls.push({ url, method: opts.method || "GET", body });
@@ -14,15 +28,16 @@ function mockFetch(calls, { ticketFullFails = false } = {}) {
     const bad = (status, json = {}) => ({ ok: false, status, text: async () => JSON.stringify(json) });
 
     if (url.includes("/crm/v3/pipelines/tickets"))
-      return ok({ results: [{ id: "42", label: "Change Requests", stages: [{ id: "101", label: "Intake" }] }] });
+      return ok({ results: pipelines });
     if (url.includes("/crm/v3/objects/contacts/search"))
       return ok({ results: [] });                       // force create path
     if (url.endsWith("/crm/v3/objects/contacts"))
       return ok({ id: "C1" });
     if (url.endsWith("/crm/v3/objects/tickets")) {
-      const hasScr = body && body.properties && (body.properties.scr_request_type || body.properties.hs_pipeline);
-      if (ticketFullFails && hasScr) return bad(400, { message: "Property scr_request_type does not exist" });
-      return ok({ id: hasScr ? "T123" : "T999" });
+      // The full payload carries scr_* props; the minimal fallback does not.
+      const isFull = !!(body && body.properties && body.properties.scr_request_type);
+      if (ticketFullFails && isFull) return bad(400, { message: "Property scr_request_type does not exist" });
+      return ok({ id: isFull ? "T123" : "T999" });
     }
     if (url.startsWith("https://hooks.slack")) return ok({});
     return bad(404, {});
@@ -92,6 +107,17 @@ await run("full create fails -> minimal fallback, degraded=true", async () => {
   assert.equal(res._j.degraded, true);
   const ticketPosts = calls.filter(c => c.url.endsWith("/crm/v3/objects/tickets"));
   assert.equal(ticketPosts.length, 2, "tried full then minimal");
+});
+
+// 4b. No Change Requests pipeline -> falls back to default pipeline's first stage
+await run("no CR pipeline -> uses default pipeline first stage (hs_pipeline_stage always set)", async () => {
+  const calls = []; globalThis.fetch = mockFetch(calls, { pipelines: DEFAULT_ONLY_PIPELINES });
+  const res = makeRes();
+  await handler({ method: "POST", body: { ...GOOD } }, res);
+  assert.equal(res._s, 200);
+  const ticket = calls.find(c => c.url.endsWith("/crm/v3/objects/tickets"));
+  assert.equal(ticket.body.properties.hs_pipeline, "0", "default pipeline id");
+  assert.equal(ticket.body.properties.hs_pipeline_stage, "1", "first stage by displayOrder");
 });
 
 // 5. GET -> 405
