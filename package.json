@@ -1,0 +1,11 @@
+{
+  "name": "autoacquire-scr-form",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AutoAcquire Software Change Request form -> HubSpot ticket + Slack (Vercel).",
+  "type": "module",
+  "scripts": {
+    "test": "node api/submit.test.mjs",
+    "check": "node --check api/submit.js"
+  }
+}
