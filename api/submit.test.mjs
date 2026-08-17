@@ -128,7 +128,7 @@ await run("dealer submission -> scr_customer_reported set, source noted in descr
   assert.equal(res._s, 200);
   const ticket = calls.find(c => c.url.endsWith("/crm/v3/objects/tickets"));
   assert.equal(ticket.body.properties.scr_customer_reported, "true", "customer-reported flag");
-  assert.ok(ticket.body.properties.content.includes("Dealer Portal (customer-reported)"), "source in description");
+  assert.ok(ticket.body.properties.content.includes("Dealer (customer-reported)"), "source in description");
 });
 
 // 4d. Rate limit -> 429 after the per-IP burst cap

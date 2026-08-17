@@ -31,7 +31,7 @@ export function buildDescription(b) {
   const line = (k, v) => (v && String(v).trim() ? `${k}: ${String(v).trim()}\n` : "");
   return (
     line("Submitter", `${b.firstname || ""} ${b.lastname || ""} <${b.email || ""}>`) +
-    line("Source", b.source === "dealer_portal" ? "Dealer Portal (customer-reported)" : "") +
+    line("Source", b.source === "dealer_portal" ? "Dealer (customer-reported)" : (b.source === "internal" ? "Internal (staff)" : "")) +
     line("On behalf of", b.scr_requesting_on_behalf_of) +
     line("Request type", b.scr_request_type) +
     line("Where in the product", b.scr_where_in_product) +
