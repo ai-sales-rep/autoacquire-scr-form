@@ -24,13 +24,14 @@ const REQUIRED = [
 const SCR_PROPS = [
   "scr_requesting_on_behalf_of", "scr_request_type", "scr_where_in_product",
   "scr_current_behavior", "scr_desired_behavior", "scr_steps_to_reproduce",
-  "scr_business_justification", "scr_reference_link",
+  "scr_business_justification", "scr_reference_link", "scr_customer_reported",
 ];
 
 export function buildDescription(b) {
   const line = (k, v) => (v && String(v).trim() ? `${k}: ${String(v).trim()}\n` : "");
   return (
     line("Submitter", `${b.firstname || ""} ${b.lastname || ""} <${b.email || ""}>`) +
+    line("Source", b.source === "dealer_portal" ? "Dealer Portal (customer-reported)" : "") +
     line("On behalf of", b.scr_requesting_on_behalf_of) +
     line("Request type", b.scr_request_type) +
     line("Where in the product", b.scr_where_in_product) +
@@ -182,9 +183,34 @@ async function readBody(req) {
   try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
 }
 
+// Best-effort in-memory rate limit: max N submissions per IP per window.
+// Serverless instances are ephemeral and not shared, so this throttles bursts
+// per warm instance rather than enforcing a hard global cap — pair with the
+// honeypot. For a strict limit, back this with Vercel KV / Upstash.
+const RL_MAX = 6;
+const RL_WINDOW_MS = 60_000;
+const rlHits = new Map();
+function clientIp(req) {
+  const fwd = (req.headers && (req.headers["x-forwarded-for"] || req.headers["X-Forwarded-For"])) || "";
+  return String(fwd).split(",")[0].trim() || (req.socket && req.socket.remoteAddress) || "";
+}
+function rateLimited(req) {
+  const ip = clientIp(req);
+  if (!ip) return false; // no identifiable client (e.g. tests) -> don't throttle
+  const now = Date.now();
+  const recent = (rlHits.get(ip) || []).filter((t) => now - t < RL_WINDOW_MS);
+  recent.push(now);
+  rlHits.set(ip, recent);
+  return recent.length > RL_MAX;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+  if (rateLimited(req)) {
+    res.status(429).json({ error: "Too many requests — please wait a minute and try again." });
     return;
   }
   const b = await readBody(req);

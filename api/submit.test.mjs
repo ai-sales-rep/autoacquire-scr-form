@@ -120,6 +120,33 @@ await run("no CR pipeline -> uses default pipeline first stage (hs_pipeline_stag
   assert.equal(ticket.body.properties.hs_pipeline_stage, "1", "first stage by displayOrder");
 });
 
+// 4c. Dealer submission -> customer-reported prop set + source in description
+await run("dealer submission -> scr_customer_reported set, source noted in description", async () => {
+  const calls = []; globalThis.fetch = mockFetch(calls);
+  const res = makeRes();
+  await handler({ method: "POST", body: { ...GOOD, scr_customer_reported: "true", source: "dealer_portal" } }, res);
+  assert.equal(res._s, 200);
+  const ticket = calls.find(c => c.url.endsWith("/crm/v3/objects/tickets"));
+  assert.equal(ticket.body.properties.scr_customer_reported, "true", "customer-reported flag");
+  assert.ok(ticket.body.properties.content.includes("Dealer Portal (customer-reported)"), "source in description");
+});
+
+// 4d. Rate limit -> 429 after the per-IP burst cap
+await run("rate limit -> 429 after burst from one IP", async () => {
+  globalThis.fetch = mockFetch([]);
+  const headers = { "x-forwarded-for": "203.0.113.7" };
+  let last;
+  for (let i = 0; i < 8; i++) {
+    last = makeRes();
+    await handler({ method: "POST", headers, body: { ...GOOD } }, last);
+  }
+  assert.equal(last._s, 429, "burst is throttled");
+  // A different IP is unaffected.
+  const other = makeRes();
+  await handler({ method: "POST", headers: { "x-forwarded-for": "203.0.113.9" }, body: { ...GOOD } }, other);
+  assert.equal(other._s, 200, "distinct IP not throttled");
+});
+
 // 5. GET -> 405
 await run("GET -> 405", async () => {
   globalThis.fetch = mockFetch([]);
