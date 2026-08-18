@@ -158,11 +158,13 @@ async function postSlack(b, ticketId, degraded) {
   if (!url) return;
   const portal = process.env.HS_PORTAL_ID || "43668701";
   const link = `https://app.hubspot.com/contacts/${portal}/record/0-5/${ticketId}`;
+  const who = b.source === "dealer_portal" ? "Dealer" : "Internal";
+  const org = b.scr_requesting_on_behalf_of ? ` — ${b.scr_requesting_on_behalf_of}` : "";
   const text =
-    `:memo: *New Software Change Request* — <${link}|#${ticketId}>\n` +
+    `:memo: *New support request* — <${link}|#${ticketId}>\n` +
     `*${b.subject}*\n` +
-    `Type: ${b.scr_request_type} · From: ${b.firstname} ${b.lastname} (${b.email})` +
-    (degraded ? `\n_(created with standard fields — Change Requests pipeline not applied yet)_` : "");
+    `${who}${org} · Type: ${b.scr_request_type} · From: ${b.firstname} ${b.lastname} (${b.email})` +
+    (degraded ? `\n_(standard fields — Change Requests pipeline not applied yet)_` : "");
   try {
     await fetch(url, {
       method: "POST",
